@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from neomodel import StructuredRel, DateTimeProperty, StringProperty, BooleanProperty, JSONProperty, ArrayProperty, \
-    StructuredNode, RelationshipTo, IntegerProperty, RelationshipFrom
+    StructuredNode, RelationshipTo, IntegerProperty, RelationshipFrom, Relationship, UniqueIdProperty
 
 
 class Link(StructuredRel):
@@ -20,6 +20,8 @@ class Action(StructuredNode):
     tag = StringProperty()
     address_from = RelationshipFrom('Address', 'FROM')
     address_to = RelationshipTo('Address', 'TO')
+    like = Relationship('Address', 'LIKE')
+    share = Relationship('Address', 'SHARE')
 
     def to_json(self):
         return {
@@ -30,6 +32,7 @@ class Action(StructuredNode):
             "address_from": self.address_from.all()[0].address if len(self.address_from) else "",
             "address_to": self.address_to.all()[0].address if len(self.address_to) else "",
         }
+
 
 # Transaction, Deposit, Withdraw
 class Transaction(Action):
@@ -212,12 +215,24 @@ class Address(StructuredNode):
     follow = RelationshipTo('Address', 'FOLLOW')
     address = StringProperty(unique_index=True, required=True)
 
-
     def timeline(self):
         results, columns = self.cypher(
             "MATCH (a) WHERE id(a)=$self MATCH (a)-[:FOLLOW]->(user:Address)-[:FROM]->(action:Action) RETURN action ORDER BY action.timestamp DESC LIMIT 150")
 
         return [get_class(row[0]).inflate(row[0]).to_json() for row in results]
+
+
+class Post(Action):
+    text = StringProperty()
+
+
+class Comment(StructuredNode):
+    id = UniqueIdProperty()
+    timestamp = DateTimeProperty(default_now=True)
+    text = StringProperty()
+    commenter = Relationship('Address', 'COMMENT')
+    action = Relationship('Action', 'COMMENT')
+    read = BooleanProperty(default=False)
 
 
 def get_class(row):
@@ -240,6 +255,7 @@ mapClass = {
     "MintCollective": MintCollective,
     "BurnCollective": BurnCollective,
     "Donate": Donate,
-    "Vote": Vote
+    "Vote": Vote,
+    "Post": Post
 }
 
