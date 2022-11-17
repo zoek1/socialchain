@@ -1,2 +1,5 @@
 neomodel
 jupyterlab
+Flask[async]
+web3
+flask-jwt-extended

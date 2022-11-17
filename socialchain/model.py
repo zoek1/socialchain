@@ -22,8 +22,9 @@ class Action(StructuredNode):
     address_to = RelationshipTo('Address', 'TO')
     like = Relationship('Address', 'LIKE')
     share = Relationship('Address', 'SHARE')
+    comments = Relationship('Comment', 'COMENTARIO')
 
-    def to_json(self):
+    def to_json(self, user=None):
         return {
             "timestamp": str(self.timestamp),
             "tx_hash": self.tx_hash,
@@ -31,6 +32,8 @@ class Action(StructuredNode):
             "tag": self.tag,
             "address_from": self.address_from.all()[0].address if len(self.address_from) else "",
             "address_to": self.address_to.all()[0].address if len(self.address_to) else "",
+            "like": self.like.is_connected(user) if user else False,
+            "share": self.share.is_connected(user) if user else False,
         }
 
 
@@ -42,8 +45,8 @@ class Transaction(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['fee'] = self.fee
         json['hash'] = self.hash
         json['network'] = self.network
@@ -78,8 +81,8 @@ class Swap(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['fee'] = self.fee
         json['hash'] = self.hash
         json['network'] = self.network
@@ -98,8 +101,8 @@ class Liquidity(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['fee'] = self.fee
         json['hash'] = self.hash
         json['network'] = self.network
@@ -117,8 +120,8 @@ class Bridge(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['fee'] = self.fee
         json['hash'] = self.hash
         json['network'] = self.network
@@ -135,8 +138,8 @@ class MintCollective(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['fee'] = self.fee
         json['hash'] = self.hash
         json['network'] = self.network
@@ -152,8 +155,8 @@ class TransferCollective(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['fee'] = self.fee
         json['hash'] = self.hash
         json['network'] = self.network
@@ -169,8 +172,8 @@ class BurnCollective(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['fee'] = self.fee
         json['hash'] = self.hash
         json['network'] = self.network
@@ -186,8 +189,8 @@ class Donate(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['fee'] = self.fee
         json['hash'] = self.hash
         json['network'] = self.network
@@ -202,8 +205,8 @@ class Vote(Action):
     success = BooleanProperty()
     actions = JSONProperty()
 
-    def to_json(self):
-        json = super().to_json()
+    def to_json(self, user=None):
+        json = super().to_json(user)
         json['hash'] = self.hash
         json['network'] = self.network
         json['success'] = self.success
@@ -214,25 +217,82 @@ class Vote(Action):
 class Address(StructuredNode):
     follow = RelationshipTo('Address', 'FOLLOW')
     address = StringProperty(unique_index=True, required=True)
+    action_from = RelationshipTo('Action', 'FROM')
+    action_to = RelationshipFrom('Action', 'TO')
+    posts = Relationship('Comment', 'COMMENTER')
 
-    def timeline(self):
+
+    def total_activity(self):
         results, columns = self.cypher(
-            "MATCH (a) WHERE id(a)=$self MATCH (a)-[:FOLLOW]->(user:Address)-[:FROM]->(action:Action) RETURN action ORDER BY action.timestamp DESC LIMIT 150")
+            "MATCH (a) WHERE id(a)=$self MATCH (a)-[]-(action:Action) RETURN DISTINCT count(action)")
 
-        return [get_class(row[0]).inflate(row[0]).to_json() for row in results]
+        return results[0][0]
+
+    def total_timeline(self):
+        results, columns = self.cypher(
+            "MATCH (a) WHERE id(a)=$self MATCH (a)-[:FOLLOW]->(user:Address)-[]-(action:Action) RETURN DISTINCT count(action)")
+
+        return results[0][0]
+
+    def activity(self, page=1, count=150):
+        #print(self.address)
+        #actions = Action.nodes.filter(add)
+        #print(dir(actions))
+
+        #return actions
+        skip = (page - 1) * count
+        results, columns = self.cypher(
+            f"""MATCH (a) WHERE id(a)=$self 
+                MATCH (a)-[]-(action:Action) 
+                RETURN DISTINCT action 
+                ORDER BY action.timestamp DESC
+                SKIP {skip} 
+                LIMIT {count}""")
+
+        return [get_class(row[0]).inflate(row[0]).to_json(self) for row in results]
+
+    def timeline(self, page=1, count=150):
+        skip = (page - 1) * count
+        results, columns = self.cypher(
+            f"""MATCH (a) WHERE id(a)=$self
+                MATCH (a)-[:FOLLOW]->(user:Address)-[]-(action:Action) 
+                RETURN DISTINCT action 
+                ORDER BY action.timestamp DESC
+                SKIP {skip} 
+                LIMIT {count}""")
+
+        return [get_class(row[0]).inflate(row[0]).to_json(self) for row in results]
 
 
 class Post(Action):
     text = StringProperty()
 
+    def to_json(self, user=None):
+        json = super().to_json(user)
+        json['text'] = self.text
+
+        return json
+
 
 class Comment(StructuredNode):
+    @classmethod
+    def category(cls):
+        pass
+
     id = UniqueIdProperty()
     timestamp = DateTimeProperty(default_now=True)
     text = StringProperty()
-    commenter = Relationship('Address', 'COMMENT')
-    action = Relationship('Action', 'COMMENT')
-    read = BooleanProperty(default=False)
+    commenter = Relationship('Address', 'COMMENTER')
+    action = Relationship('Action', 'COMENTARIO')
+
+    def to_json(self):
+        return {
+            "id": self.id,
+            "timestamp": str(self.timestamp),
+            "text": self.text,
+            "commenter": self.commenter.all()[0].address if len(self.commenter.all()) else "",
+            "action": self.action.all()[0].tx_hash if len(self.action) else "",
+        }
 
 
 def get_class(row):
